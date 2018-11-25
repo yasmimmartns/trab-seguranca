@@ -19,7 +19,7 @@ var p2p_port = process.env.P2P_PORT || 6001;
 var initialPeers = [];
 
 class Block {
-    constructor(index, previousHash, timestamp, data, hash, creator, publicKey, signature, ip, file) {
+    constructor(index, previousHash, timestamp, data, hash, creator, publicKey, signature, ip, file, nounce) {
         this.index = index;
         this.previousHash = previousHash.toString();
         this.timestamp = timestamp;
@@ -30,6 +30,7 @@ class Block {
         this.signature = signature;
         this.ip = ip;
         this.file = file;
+        this.nounce = nounce;
     }
 }
 
@@ -40,16 +41,33 @@ var MessageType = {
     RESPONSE_BLOCKCHAIN: 2
 };
 
-var calculateHash = function (timestamp, data, creator, publicKey, signature, ip, file) {
-    return security.hash(timestamp + data + creator + publicKey + signature + ip + file);
+var calculateHash = function (timestamp, data, creator, publicKey, signature, ip, file, nounce) {
+    return security.hash(timestamp + data + creator + publicKey + signature + ip + file + nounce);
 };
 
 var getGenesisBlock = function () {
     // return new Block(0, "0", 1465154705, "my genesis block!!", "816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7");
 
     var signature = security.signature("Iniciando blockchain", 1);
-    return new Block(0, "0", 1465154705000, "Iniciando blockchain", calculateHash(0, 1465154705000, "genesis", "Blockchain Services", security.programPub, signature, "0.0.0.0", ""), "Blockchain Services", security.programPub, signature, "0.0.0.0", "");
+    var nounce = mine(1465154705000, "Iniciando blockchain", "Blockchain Services", security.programPub, signature, "0.0.0.0", "");
+    return new Block(0, "0", 1465154705000, "Iniciando blockchain", calculateHash(0, 1465154705000, "genesis", "Blockchain Services", security.programPub, signature, "0.0.0.0", ""), "Blockchain Services", security.programPub, signature, "0.0.0.0", "", nounce);
 };
+
+var mine = function (timestamp, data, creator, publicKey, signature, ip, file) {
+
+    var nounce = -1;
+    var hashatual = 0;
+
+    do {
+        nounce++;
+        
+        hashatual = calculateHash(timestamp, data, creator, publicKey, signature, ip, file, nounce);
+        var temp = hashatual.split('');
+
+    } while (temp[0] != 0);
+    return nounce;
+
+}
 
 var blockchain = [getGenesisBlock()];
 
@@ -121,28 +139,22 @@ var initErrorHandler = (ws) => {
 var generateNextBlock = (blockData, file, type) => {
 
     var nextTimestamp = new Date().getTime();
-
     var previousBlock = getLatestBlock();
     var nextIndex = previousBlock.index + 1;
     var nextTimestamp = new Date().getTime();
 
     if (type == 0) {
         var signature = security.signature(blockData, 0);
-        var nextHash = calculateHash(nextTimestamp, blockData, security.publicKeyExtracted.commonName, security.publicKey, signature, ip.address(), file);
-        return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash, security.publicKeyExtracted.commonName, security.publicKey, signature, ip.address(), file);
+        var nounce = mine(nextTimestamp, blockData, security.publicKeyExtracted.commonName, security.programPub, signature, ip.address(), file);
+        var nextHash = calculateHash(nextTimestamp, blockData, security.publicKeyExtracted.commonName, security.publicKey, signature, ip.address(), file, nounce);
+        return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash, security.publicKeyExtracted.commonName, security.publicKey, signature, ip.address(), file, nounce);
         // return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash);
     }
-
-    else{
-        
-    }
-
-
 };
 
 
 var calculateHashForBlock = (block) => {
-    return calculateHash(block.timestamp, block.data, block.creator, block.publicKey, block.signature, block.ip, block.file);
+    return calculateHash(block.timestamp, block.data, block.creator, block.publicKey, block.signature, block.ip, block.file, block.nounce);
 };
 
 var addBlock = (newBlock) => {
@@ -249,10 +261,10 @@ class logManager {
         var logFiles;
 
         try {
-         	logFiles = fs.readFileSync('config', 'utf8');
-        } catch(e){
-         	console.log("Config cannot be open");
-         	process.exit(1);
+            logFiles = fs.readFileSync('config', 'utf8');
+        } catch (e) {
+            console.log("Config cannot be open");
+            process.exit(1);
         }
 
         logFiles = JSON.parse(logFiles);

@@ -132,6 +132,7 @@ vT6KDq1GrZOCtsO21HxjIkVApx9cQ/7lkNjkMxXUFTn8WpTrnILT\n\
 	}
 
 	function hash(str) {
+		var hash = crypto.createHash('sha256');
 		return crypto.createHash('sha256').update(str).digest('base64');
 	}
 
