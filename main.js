@@ -4,20 +4,32 @@ var express = require("express");
 var bodyParser = require('body-parser');
 var WebSocket = require("ws");
 
+var path = require('path');
+var fs = require('fs');
+var crypto = require('crypto');
+var x509 = require('x509');
+var ip = require("ip");
+var security = require('./security.js')(path, fs, x509, crypto);
+
 //envio mensagens
-var http_port = process.env.HTTP_PORT || 3001; 
+var http_port = process.env.HTTP_PORT || 3001;
 
 //conexão entre os peers
 var p2p_port = process.env.P2P_PORT || 6001;
 var initialPeers = [];
 
 class Block {
-    constructor(index, previousHash, timestamp, data, hash) {
+    constructor(index, previousHash, timestamp, data, hash, creator, publicKey, signature, ip, file) {
         this.index = index;
         this.previousHash = previousHash.toString();
         this.timestamp = timestamp;
         this.data = data;
         this.hash = hash.toString();
+        this.creator = creator;
+        this.publicKey = publicKey;
+        this.signature = signature;
+        this.ip = ip;
+        this.file = file;
     }
 }
 
@@ -28,8 +40,15 @@ var MessageType = {
     RESPONSE_BLOCKCHAIN: 2
 };
 
+var calculateHash = function (timestamp, data, creator, publicKey, signature, ip, file) {
+    return security.hash(timestamp + data + creator + publicKey + signature + ip + file);
+};
+
 var getGenesisBlock = function () {
-    return new Block(0, "0", 1465154705, "my genesis block!!", "816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7");
+    // return new Block(0, "0", 1465154705, "my genesis block!!", "816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7");
+
+    var signature = security.signature("Iniciando blockchain", 1);
+    return new Block(0, "0", 1465154705000, "Iniciando blockchain", calculateHash(0, 1465154705000, "genesis", "Blockchain Services", security.programPub, signature, "0.0.0.0", ""), "Blockchain Services", security.programPub, signature, "0.0.0.0", "");
 };
 
 var blockchain = [getGenesisBlock()];
@@ -58,7 +77,7 @@ var initHttpServer = () => {
 
 
 var initP2PServer = () => {
-    var server = new WebSocket.Server({port: p2p_port});
+    var server = new WebSocket.Server({ port: p2p_port });
     server.on('connection', ws => initConnection(ws));
     console.log('listening websocket p2p port on: ' + p2p_port);
 
@@ -99,21 +118,31 @@ var initErrorHandler = (ws) => {
 };
 
 
-var generateNextBlock = (blockData) => {
+var generateNextBlock = (blockData, file, type) => {
+
+    var nextTimestamp = new Date().getTime();
+
     var previousBlock = getLatestBlock();
     var nextIndex = previousBlock.index + 1;
-    var nextTimestamp = new Date().getTime() / 1000;
-    var nextHash = calculateHash(nextIndex, previousBlock.hash, nextTimestamp, blockData);
-    return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash);
+    var nextTimestamp = new Date().getTime();
+
+    if (type == 0) {
+        var signature = security.signature(blockData, 0);
+        var nextHash = calculateHash(nextTimestamp, blockData, security.publicKeyExtracted.commonName, security.publicKey, signature, ip.address(), file);
+        return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash, security.publicKeyExtracted.commonName, security.publicKey, signature, ip.address(), file);
+        // return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash);
+    }
+
+    else{
+        
+    }
+
+
 };
 
 
 var calculateHashForBlock = (block) => {
-    return calculateHash(block.index, block.previousHash, block.timestamp, block.data);
-};
-
-var calculateHash = (index, previousHash, timestamp, data) => {
-    return CryptoJS.SHA256(index + previousHash + timestamp + data).toString();
+    return calculateHash(block.timestamp, block.data, block.creator, block.publicKey, block.signature, block.ip, block.file);
 };
 
 var addBlock = (newBlock) => {
@@ -123,7 +152,7 @@ var addBlock = (newBlock) => {
 };
 
 var isValidNewBlock = (newBlock, previousBlock) => {
-    if (previousBlock.index + 1 !== newBlock.index) { 
+    if (previousBlock.index + 1 !== newBlock.index) {
         console.log('invalid index');
         return false;
     } else if (previousBlock.hash !== newBlock.previousHash) {
@@ -195,9 +224,9 @@ var isValidChain = (blockchainToValidate) => {
 };
 
 var getLatestBlock = () => blockchain[blockchain.length - 1];
-var queryChainLengthMsg = () => ({'type': MessageType.QUERY_LATEST});
-var queryAllMsg = () => ({'type': MessageType.QUERY_ALL});
-var responseChainMsg = () =>({
+var queryChainLengthMsg = () => ({ 'type': MessageType.QUERY_LATEST });
+var queryAllMsg = () => ({ 'type': MessageType.QUERY_ALL });
+var responseChainMsg = () => ({
     'type': MessageType.RESPONSE_BLOCKCHAIN, 'data': JSON.stringify(blockchain)
 });
 var responseLatestMsg = () => ({
@@ -214,40 +243,40 @@ initP2PServer();
 
 class logManager {
 
-	constructor(fs, Tail) {
+    constructor(fs, Tail) {
 
-		var options= {separator: /([^/]*)$/, fromBeginning: false, follow: true};
-        var logFiles = ['testelog.txt', '/var/log/apt/term.log'];
-		
-		// try {
-		// 	logFiles = fs.readFileSync('config', 'utf8');
-		// } catch(e){
-		// 	console.log("Config cannot be open");
-		// 	process.exit(1);
-		// }
+        var options = { separator: /([^/]*)$/, fromBeginning: false, follow: true };
+        var logFiles;
 
-		//logFiles = JSON.parse(logFiles);
+        try {
+         	logFiles = fs.readFileSync('config', 'utf8');
+        } catch(e){
+         	console.log("Config cannot be open");
+         	process.exit(1);
+        }
 
-		for(var i = 0; i < logFiles.length; i++){
-			try{
-				let self = this;
-				let file = logFiles[i];
-				let tl = new Tail(file, options);
-				tl.on("line", function(data){
-					
-					if(data != ""){
-						//console.log('Log Created! Block being created...'+data);
+        logFiles = JSON.parse(logFiles);
+
+        for (var i = 0; i < logFiles.length; i++) {
+            try {
+                let self = this;
+                let file = logFiles[i];
+                let tl = new Tail(file, options);
+                tl.on("line", function (data) {
+
+                    if (data != "") {
+                        //console.log('Log Created! Block being created...'+data);
                         //addBlock(data,file, 0);
-                        var newBlock = generateNextBlock(data);
+                        var newBlock = generateNextBlock(data, file, 0);
                         addBlock(newBlock);
-					}
-				})
-			}
-			catch(e){
-				console.log(logFiles[i]+" this file cannot be open");
-			}
-		}
-	}
+                    }
+                })
+            }
+            catch (e) {
+                console.log(logFiles[i] + " this file cannot be open");
+            }
+        }
+    }
 }
 
 
