@@ -1,1 +1,1 @@
-["./log/testelog.txt", "/var/log/apt/term.log"]
+["./log/testelog.txt", "/var/log/apt/history.log"]

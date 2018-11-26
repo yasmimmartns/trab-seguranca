@@ -160,6 +160,7 @@ var calculateHashForBlock = (block) => {
 var addBlock = (newBlock) => {
     if (isValidNewBlock(newBlock, getLatestBlock())) {
         blockchain.push(newBlock);
+        broadcast(responseLatestMsg());
     }
 };
 
